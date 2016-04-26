@@ -1,0 +1,166 @@
+﻿<#@ template debug="false" hostspecific="false" language="C#" #>
+<#@ assembly name="System.Core" #>
+<#@ import namespace="System.Linq" #>
+<#@ import namespace="System.Text" #>
+<#@ import namespace="System.Collections.Generic" #>
+<#@ output extension=".cs" #>
+
+<#
+
+    var valueTypes = new[]
+                     {
+                         new Definition("OrderDirection", "string")
+                         {
+                             Predefined =
+                             {
+                                 {"Buy", "buy"},
+                                 {"Sell", "sell"}
+                             }
+                         },
+                         new Definition("OrderType", "string")
+                         {
+                             Predefined =
+                             {
+                                 {"Limit", "limit"},
+                                 {"Market", "market"},
+                                 {"FillOrKill", "fill-or-kill"},
+                                 {"ImmediateOrCancel", "immediate-or-cancel"}
+                             }
+                         },
+                         new Definition("Symbol", "string"),
+                         new Definition("Price", "int")
+                         {
+                             ToStringText = "string.Format(\"{C2}\", Value / 100)"
+                         },
+                         new Definition("Quantity", "int"),
+                     };
+
+#>
+
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using System;
+
+namespace Stockfighter.Core.ValueTypes
+{
+
+    public static class ValueTypeFactory
+    {
+<#
+    foreach (var definition in valueTypes)
+    {
+#>          
+        public static <#=definition.Name#> <#=definition.Name#>(<#=definition.Type#> value) => new <#=definition.Name#>(value);
+<#
+    }
+#>
+    }
+
+
+    public class ValueAdapterJsonConverter : JsonConverter
+    {
+        public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
+        {
+<#
+    foreach (var definition in valueTypes)
+    {
+#>          
+            if(value is <#=definition.Name#>) { serializer.Serialize(writer,((<#=definition.Name#>)value).Value); return; }
+<#
+    }
+#>
+        }
+
+        public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+        {
+ <#
+    foreach (var definition in valueTypes)
+    {
+#>          
+            if(objectType == typeof(<#=definition.Name#>)) { return new <#=definition.Name#>(JToken.ReadFrom(reader).Value<<#=definition.Type#>>()); }
+<#
+    }
+#>
+            throw new InvalidOperationException($"Type {objectType} not recognized.");
+        }
+
+        public override bool CanConvert(Type objectType)
+        {
+            return <#= string.Join(" || ", valueTypes.Select(v => $"objectType == typeof({v.Name})")) #>;
+        }
+    }
+
+<#
+    foreach (var definition in valueTypes)
+    {    
+#>
+    [JsonConverter(typeof(ValueAdapterJsonConverter))]
+    public partial struct <#=definition.Name#>
+    {
+<#
+        foreach (var predefined in definition.Predefined)
+        {
+#>
+        public static readonly <#=definition.Name#> <#=predefined.Key#> = new <#=definition.Name#>(<#=predefined.Value is string ? "\"" + predefined.Value + "\"" : predefined.Value#>);
+<#            
+        }
+#>  
+        public readonly <#=definition.Type#> Value;
+
+
+        public <#=definition.Name#>(<#=definition.Type#> value)
+        {
+            Value = value;
+        }
+
+        public override string ToString() => <#=definition.ToStringText#>;
+
+        public override int GetHashCode() => (Value != null ? Value.GetHashCode() : 0);
+
+        public bool Equals(<#=definition.Name#> other) => string.Equals(Value, other.Value);
+
+        public override bool Equals(object obj)
+        {
+            if (ReferenceEquals(null, obj)) return false;
+            return obj is <#=definition.Name#> && Equals((<#=definition.Name#>) obj);
+        }
+
+
+<#
+    if (definition.Type == "int")
+    {
+#>
+        public static <#=definition.Name#> operator +(<#=definition.Name#> a, <#=definition.Name#> b) =>new <#=definition.Name#>(a.Value + b.Value);
+        public static <#=definition.Name#> operator -(<#=definition.Name#> a, <#=definition.Name#> b) =>new <#=definition.Name#>(a.Value - b.Value);
+        public static bool operator >(<#=definition.Name#> a, <#=definition.Name#> b) => a.Value > b.Value;
+        public static bool operator <(<#=definition.Name#> a, <#=definition.Name#> b) => a.Value < b.Value;
+        public static bool operator ==(<#=definition.Name#> a, <#=definition.Name#> b) => a.Value == b.Value;
+        public static bool operator !=(<#=definition.Name#> a, <#=definition.Name#> b) => a.Value != b.Value;
+<# 
+    }
+#>
+    }
+
+<#
+    }
+#>
+}
+
+<#+
+
+public class Definition
+{
+    public string Type { get; set; }
+    public string Name { get; set; }
+    public Dictionary<string, object> Predefined { get; } = new Dictionary<string, object>();
+    public string ToStringText { get; set; } = "Value.ToString()";
+
+    public Definition(string name, string type)
+    {
+        Type = type;
+        Name = name;
+    }  
+
+}
+
+#>
